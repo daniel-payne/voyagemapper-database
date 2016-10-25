@@ -1,137 +1,63 @@
 ---------------------------------------------------------------------------------------------------
 --Drops
 ---------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetDocumentsUncurated'   AND type = 'P') DROP PROCEDURE Risk.GetDocumentsUncurated
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetFacts'                AND type = 'P') DROP PROCEDURE Risk.GetFacts
+
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocument'            AND type = 'P') DROP PROCEDURE Risk.PostDocument
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocument'          AND type = 'P') DROP PROCEDURE Risk.ProcesDocument
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocuments'         AND type = 'P') DROP PROCEDURE Risk.ProcesDocuments
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetDocumentFacts'        AND type = 'P') DROP PROCEDURE Risk.GetDocumentFacts
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetUncuratedDocuments'   AND type = 'P') DROP PROCEDURE Risk.GetUncuratedDocuments
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocumentFactStatus'  AND type = 'P') DROP PROCEDURE Risk.PostDocumentFactStatus
 
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactCategory'         AND type = 'P') DROP PROCEDURE Risk.PutFactCategory
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactMerge'            AND type = 'P') DROP PROCEDURE Risk.PutFactMerge
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactText'             AND type = 'P') DROP PROCEDURE Risk.PutFactText
 go
 
 ---------------------------------------------------------------------------------------------------
 --Drops
 ---------------------------------------------------------------------------------------------------
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentFact'    AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentFact
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentFacts'   AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentFacts
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostLocation'          AND type = 'P') DROP PROCEDURE Risk.PostLocation
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostSignal'            AND type = 'P') DROP PROCEDURE Risk.PostSignal
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocuments'         AND type = 'P') DROP PROCEDURE Risk.ProcesDocuments
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocumentFactStatus'  AND type = 'P') DROP PROCEDURE Risk.PostDocumentFactStatus
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetUncuratedDocuments'   AND type = 'P') DROP PROCEDURE Risk.GetUncuratedDocuments
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentFact'      AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentFact
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentFacts'     AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentFacts
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostLocation'            AND type = 'P') DROP PROCEDURE Risk.PostLocation
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostSignal'              AND type = 'P') DROP PROCEDURE Risk.PostSignal
 go
           
-
+        
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.GetUncuratedDocuments 'NOCOVERAGE'
+-- EXECUTE Risk.GetDocumentsUncurated 'NOCOVERAGE'
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE [Risk].[GetUncuratedDocuments] 
+CREATE PROCEDURE [Risk].[GetDocumentsUncurated] 
 (
-  @CoverageFormat     varchar(20)   = 'NOCOVERAGE',
   @MaxDocumentCount   integer       = 10
 )
 AS 
 
-IF UPPER(@coverageFormat) = 'NOCOVERAGE' BEGIN
 
-  SELECT TOP (@MaxDocumentCount)
-    D.DocumentID                              'documentId', 
-    C.CountryID                               'countryId',
-    C.CountryName                             'countryName',
-    D.DocumentSource                          'documentSource', 
-    D.DocumentTitle                           'documentTitle', 
-    NULL                                      'documentCoverage'
-  FROM
-    Risk.Document  D
-  LEFT OUTER JOIN
-    Geographic.Country C ON C.CountryID = D.CountryID
-  WHERE
-    IsLatestDocument = 1 
-  AND
-    CuratedAtUTC IS NULL
+SELECT TOP (@MaxDocumentCount)
+  D.DocumentID                              'documentId', 
+  D.DocumentSource                          'documentSource', 
+  D.DocumentTitle                           'documentTitle' 
+FROM
+  Risk.Document  D
+WHERE
+  IsLatestDocument = 1 
+AND
+  CuratedAtUTC IS NULL
 
-END ELSE IF UPPER(@coverageFormat) = 'GEOJSON' BEGIN
-
-  SELECT TOP (@MaxDocumentCount)
-    D.DocumentID                              'documentId', 
-    C.CountryID                               'countryId', 
-    C.CountryName                             'countryName',
-    D.DocumentSource                          'documentSource', 
-    D.DocumentTitle                           'documentTitle', 
-    dbo.CastAsGeoJSON(D.DocumentCoverage)     'documentCoverage'
-  FROM
-    Risk.Document  D
-  LEFT OUTER JOIN
-    Geographic.Country C ON C.CountryID = D.CountryID
-  WHERE
-    IsLatestDocument = 1 
-  AND
-    CuratedAtUTC IS NULL
-
-END ELSE IF UPPER(@coverageFormat) = 'GOOGLEARRAY' BEGIN
-
-  SELECT TOP (@MaxDocumentCount)
-    D.DocumentID                              'documentId', 
-    C.CountryID                               'countryId', 
-    C.CountryName                             'countryName',
-    D.DocumentSource                          'documentSource', 
-    D.DocumentTitle                           'documentTitle', 
-    dbo.CastAsGoogleArray(D.DocumentCoverage) 'documentCoverage'
-  FROM
-    Risk.Document  D
-  LEFT OUTER JOIN
-    Geographic.Country C ON C.CountryID = D.CountryID
-  WHERE
-    IsLatestDocument = 1 
-  AND
-    CuratedAtUTC IS NULL
-
-END ELSE IF UPPER(@coverageFormat) = 'SVG' BEGIN
-
-  SELECT TOP (@MaxDocumentCount)
-    D.DocumentID                             'documentId', 
-    C.CountryID                              'countryId', 
-    C.CountryName                            'countryName',
-    D.DocumentSource                         'documentSource', 
-    D.DocumentTitle                          'documentTitle', 
-    CAST(D.DocumentCoverage as varchar(max)) 'documentCoverage'
-  FROM
-    Risk.Document  D
-  LEFT OUTER JOIN
-    Geographic.Country C ON C.CountryID = D.CountryID
-  WHERE
-    IsLatestDocument = 1 
-  AND
-    CuratedAtUTC IS NULL
-
-END ELSE BEGIN
- 
-  SELECT TOP (@MaxDocumentCount)
-    D.DocumentID        'documentId', 
-    C.CountryID         'countryId', 
-    C.CountryName       'countryName',
-    D.DocumentSource    'documentSource', 
-    D.DocumentTitle     'documentTitle', 
-    D.DocumentCoverage  'documentCoverage'
-  FROM
-    Risk.Document  D
-  LEFT OUTER JOIN
-    Geographic.Country C ON C.CountryID = D.CountryID
-  WHERE
-    IsLatestDocument = 1 
-  AND
-    CuratedAtUTC IS NULL
-
-END
 
 RETURN @@ROWCOUNT
-go
 
-GRANT EXECUTE ON [Risk].[GetUncuratedDocuments] TO [risk.service]
+GO
+
+GRANT EXECUTE ON [Risk].[GetDocumentsUncurated] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.GetDocumentFacts 104, 'GOOGLEARRAY'
+-- EXECUTE Risk.GetFacts 104, 'GOOGLEARRAY'
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE [Risk].[GetDocumentFacts] 
+CREATE PROCEDURE [Risk].[GetFacts] 
 (
   @DocumentID         integer,
   @CoverageFormat     varchar(20)   = 'NOCOVERAGE'
@@ -141,19 +67,25 @@ AS
 IF UPPER(@coverageFormat) = 'NOCOVERAGE' BEGIN
 
   SELECT
-    DocumentFactID                      'documentFactId',
+    FactID                              'factId',
     DocumentID                          'documentId',
     FactCategory                        'factCategory',
     FactText                            'factText',
-    IsRelevant                          'isRelevant',
+    DisplayText                         'displayText',
+    F.CountryID                         'countryID',
+    CountryName                         'countryName',
     borderReferences                    'borderReferences',
     placeReferences                     'placeReferences',
     boundaryReferences                  'boundaryReferences',
+    countyReferences                    'countyReferences',
     null                                'factGeography',
     AnalysisCategories                  'analysisCategories',
-    FactStatus                          'factStatus' 
+    IsEdited                            'isEdited', 
+    IsMerged                            'isMerged'  
   FROM
-    Risk.DocumentFact  F
+    Risk.Fact  F
+  LEFT OUTER JOIN
+    Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
     F.DocumentID = @DocumentID
 
@@ -161,130 +93,120 @@ IF UPPER(@coverageFormat) = 'NOCOVERAGE' BEGIN
 END ELSE IF UPPER(@coverageFormat) = 'GEOJSON' BEGIN
 
   SELECT
-    DocumentFactID                      'documentFactId',
+    FactID                              'factId',
     DocumentID                          'documentId',
     FactCategory                        'factCategory',
     FactText                            'factText',
-    IsRelevant                          'isRelevant',
+    DisplayText                         'displayText',
+    F.CountryID                         'countryID',
+    CountryName                         'countryName',
     borderReferences                    'borderReferences',
     placeReferences                     'placeReferences',
     boundaryReferences                  'boundaryReferences',
+    countyReferences                    'countyReferences',
     dbo.CastAsGeoJSON(FactGeography)    'factGeography',
     AnalysisCategories                  'analysisCategories',
-    FactStatus                          'factStatus' 
+    IsEdited                            'isEdited', 
+    IsMerged                            'isMerged'  
   FROM
-    Risk.DocumentFact  F
+    Risk.Fact  F
+  LEFT OUTER JOIN
+    Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
     F.DocumentID = @DocumentID
 
 END ELSE IF UPPER(@coverageFormat) = 'GOOGLEARRAY' BEGIN
 
   SELECT
-    DocumentFactID                      'documentFactId',
+    FactID                              'factId',
     DocumentID                          'documentId',
     FactCategory                        'factCategory',
     FactText                            'factText',
-    IsRelevant                          'isRelevant',
+    DisplayText                         'displayText',
+    F.CountryID                         'countryID',
+    CountryName                         'countryName',
     borderReferences                    'borderReferences',
     placeReferences                     'placeReferences',
     boundaryReferences                  'boundaryReferences',
+    countyReferences                    'countyReferences',
     dbo.CastAsGoogleArray(FactGeography)'factGeography',
     AnalysisCategories                  'analysisCategories',
-    FactStatus                          'factStatus' 
+    IsEdited                            'isEdited', 
+    IsMerged                            'isMerged'  
   FROM
-    Risk.DocumentFact  F
+    Risk.Fact  F
+  LEFT OUTER JOIN
+    Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
     F.DocumentID = @DocumentID
 
 END ELSE IF UPPER(@coverageFormat) = 'SVG' BEGIN
 
   SELECT
-    DocumentFactID                      'documentFactId',
+    FactID                              'factId',
     DocumentID                          'documentId',
     FactCategory                        'factCategory',
     FactText                            'factText',
-    IsRelevant                          'isRelevant',
+    DisplayText                         'displayText',
+    F.CountryID                         'countryID',
+    CountryName                         'countryName',
     borderReferences                    'borderReferences',
     placeReferences                     'placeReferences',
     boundaryReferences                  'boundaryReferences',
+    countyReferences                    'countyReferences',
     CAST(FactGeography as varchar(max)) 'factGeography',
     AnalysisCategories                  'analysisCategories',
-    FactStatus                          'factStatus' 
+    IsEdited                            'isEdited', 
+    IsMerged                            'isMerged'  
   FROM
-    Risk.DocumentFact  F
+    Risk.Fact  F
+  LEFT OUTER JOIN
+    Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
     F.DocumentID = @DocumentID
 
 END ELSE BEGIN
  
   SELECT
-    DocumentFactID                      'documentFactId',
+    FactID                              'factId',
     DocumentID                          'documentId',
     FactCategory                        'factCategory',
     FactText                            'factText',
-    IsRelevant                          'isRelevant',
+    DisplayText                         'displayText',
+    F.CountryID                         'countryID',
+    CountryName                         'countryName',
     borderReferences                    'borderReferences',
     placeReferences                     'placeReferences',
     boundaryReferences                  'boundaryReferences',
+    countyReferences                    'countyReferences',
     FactGeography                       'factGeography',
     AnalysisCategories                  'analysisCategories',
-    FactStatus                          'factStatus' 
+    IsEdited                            'isEdited', 
+    IsMerged                            'isMerged' 
   FROM
-    Risk.DocumentFact  F
+    Risk.Fact  F
+  LEFT OUTER JOIN
+    Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
     F.DocumentID = @DocumentID
 
 END
 
 RETURN @@ROWCOUNT
-go 
-
-
-GRANT EXECUTE ON [Risk].[GetDocumentFacts] TO [risk.service]
 GO
 
----------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.PostDocumentFactStatus 4863, 'PROFILE'
----------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE [Risk].[PostDocumentFactStatus] 
-(
-  @DocumentFactID     integer,
-  @FactStatus         varchar(255)    
-)
-AS 
-
-DECLARE @FactText varchar(max)
-
-SELECT 
-  @FactText = FactText
-FROM
-  Risk.DocumentFact
-WHERE
-  DocumentFactID = @DocumentFactID
-
-IF @FactStatus = 'DISCARDED' BEGIN
-
-  UPDATE Risk.DocumentFact SET
-    FactStatus = @FactStatus 
-  WHERE
-    FactText = @FactText
-
-END ELSE BEGIN
-
-   UPDATE Risk.DocumentFact SET
-    FactStatus = @FactStatus 
-  WHERE
-    DocumentFactID = @DocumentFactID
-
-END
+GRANT EXECUTE ON [Risk].[GetFacts] TO [risk.service]
+GO
 
 
+USE [VoyageMapper]
+GO
 
-RETURN @@ROWCOUNT
-go 
+/****** Object:  StoredProcedure [Risk].[ProcesDocument]    Script Date: 25/10/2016 19:49:49 ******/
+SET ANSI_NULLS ON
+GO
 
-
-GRANT EXECUTE ON [Risk].[PostDocumentFactStatus] TO [risk.service]
+SET QUOTED_IDENTIFIER OFF
 GO
 
 
@@ -293,15 +215,15 @@ GO
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [Risk].[ProcesDocument] 
 (
-  @DocumentID int 
+  @DocumentID           integer,
+  @Title                varchar(max),
+  @Text                 varchar(max) 
 )
 AS 
 --declare @DocumentID int = 104 
 
 DECLARE @toleranceInMeters integer = 1000;       
 
-DECLARE @Title                varchar(max)
-DECLARE @Text                 varchar(max)
 DECLARE @CountryID            int
 DECLARE @Input                varchar(max)
 DECLARE @DocumentCoverage     geography
@@ -309,50 +231,47 @@ DECLARE @PhraseCode           varchar(255)
 DECLARE @WordCodes            varchar(max)
 DECLARE @LastCategoryCode     varchar(255)
 DECLARE @FactText             varchar(max)
+DECLARE @FactHash             varbinary(8000)
 
 DECLARE @FACTS    TABLE (FactText varchar(max))
-DECLARE @COVERAGE TABLE (BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), textCoverage geography)
-DECLARE @RESULTS  TABLE (RowID int IDENTITY (1,1), PhraseCode varchar(50), FactText varchar(max), IsRelevant bit, BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), textCoverage geography, WordCodes   varchar(max) )
-DECLARE @MISSING  TABLE (RowID int               , PhraseCode varchar(50), FactText varchar(max), IsRelevant bit, BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), textCoverage geography, WordCodes   varchar(max) )
+DECLARE @COVERAGE TABLE (BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), countyReferences varchar(max), textCoverage geography)
+DECLARE @RESULTS  TABLE (RowID int IDENTITY (1,1), PhraseCode varchar(50), FactText varchar(max), FactHash varbinary(max), BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), countyReferences varchar(max), textCoverage geography, WordCodes   varchar(max) )
 
 ------------------------------------------------------------------------------------------------------------------------------------------------
 
-SELECT 
-  @Title  = ' ' + DocumentTitle + ' ',
-  @Text   = ' ' + DocumentText  + ' '
-FROM 
-  Risk.Document 
-WHERE 
-  DocumentID = @DocumentID 
+SET @Title  = ' ' + @Title + ' ' 
+SET @Text   = ' ' + @Text  + ' '
 
 DELETE FROM 
-  Risk.DocumentFact
+  Risk.Fact
 WHERE
   DocumentID = @DocumentID
 
 INSERT INTO @FACTS(FactText)
-SELECT
-  dbo.TextToSimpleString(item, 0)
-FROM
-  dbo.ListToTable( replace( @Text, CHAR(13), CHAR(10) ), CHAR(10) ) 
+  SELECT
+    dbo.TextToSimpleString(item, 0)
+  FROM
+    dbo.ListToTable( @Text, '.' ) 
+  WHERE
+    datalength(item) > 0
 
 ------------------------------------------------------------------------------------------------------------------------------------------------
 
-SELECT
+SELECT TOP 1
   @CountryID = CountryID
 FROM
   Geographic.CountryName
 WHERE
   CHARINDEX(CountryMatchName, @Title) > 0
+ORDER BY
+  datalength(CountryMatchName) DESC
 
 IF @CountryID IS NULL BEGIN
 
-  UPDATE Risk.Document SET
-    AnalisedAtUTC     = getutcdate(),
-    DocumentCoverage  = NULL,
-    CountryID         = @CountryID 
-  WHERE
-    DocumentID = @DocumentID
+  --UPDATE Risk.Document SET
+  --  CuratedAtUTC     = getutcdate() 
+  --WHERE
+  --  DocumentID = @DocumentID
 
   RETURN 0
 
@@ -369,39 +288,44 @@ OPEN FACT_CURSOR
 FETCH NEXT FROM FACT_CURSOR INTO @FactText   
 
 WHILE @@FETCH_STATUS = 0 BEGIN   
+   
+  SET @FactHash = HASHBYTES('SHA1', @FactText); 
 
-  INSERT INTO @COVERAGE (borderReferences, PlaceReferences , boundaryReferences , textCoverage)
+  INSERT INTO @COVERAGE (borderReferences, PlaceReferences , boundaryReferences , countyReferences , textCoverage)
     EXECUTE Geographic.GetCoverage @FactText, @CountryID
 
-  SELECT TOP 1
-    @PhraseCode = CategoryCode 
+  SELECT  
+     @WordCodes = COALESCE(@WordCodes + ', ', '') + CategoryCode 
   FROM
     Risk.TriggerPhrases
   WHERE
     PATINDEX(TriggerPhrase, @FactText) > 0
-  ORDER BY
-    PATINDEX(TriggerPhrase, @FactText) ASC 
 
-  SELECT  
-    @WordCodes = COALESCE(@WordCodes + ', ', '') + CategoryCode   
-  FROM
-    Risk.TriggerWords
-  WHERE
-    CHARINDEX(TriggerWord, @FactText) > 0
-  GROUP BY
-    CategoryCode
-  ORDER BY
-    sum(1.0/CategoryCount)                DESC,
-    min(CHARINDEX(TriggerWord, @FactText)) ASC 
+  IF @WordCodes IS NULL BEGIN
+
+    SELECT  
+      @WordCodes = COALESCE(@WordCodes + ', ', '') + CategoryCode   
+    FROM
+      Risk.TriggerWords
+    WHERE
+      CHARINDEX(TriggerWord, @FactText) > 0
+    GROUP BY
+      CategoryCode
+    ORDER BY
+      sum(1.0/CategoryCount)                DESC,
+      min(CHARINDEX(TriggerWord, @FactText)) ASC 
+
+  END
    
   INSERT INTO @RESULTS 
     SELECT
       @PhraseCode,
       @FactText, 
-      CASE WHEN textCoverage IS NULL THEN 0 ELSE 1 END,
+      @FactHash,
       borderReferences, 
       PlaceReferences, 
       boundaryReferences, 
+      countyReferences,
       textCoverage,
       @WordCodes 
     FROM   
@@ -419,144 +343,55 @@ END
 CLOSE      FACT_CURSOR   
 DEALLOCATE FACT_CURSOR
 
-
-INSERT INTO @MISSING
-  SELECT 
-    *
-  FROM  
-    @RESULTS
-  WHERE
-    PhraseCode IS NULL AND TextCoverage IS NOT NULL
-
-
-UPDATE M SET
-  PhraseCode = R.PhraseCode
-FROM
-(
-  SELECT 
-    *
-  FROM  
-    @RESULTS
-  WHERE
-    PhraseCode IS NULL AND TextCoverage IS NOT NULL
-) M
-INNER JOIN
-  @RESULTS  R ON R.RowID = 
-(
-  SELECT TOP 1 
-    RowID 
-  FROM 
-    @RESULTS 
-  WHERE 
-    PhraseCode IS NOT NULL 
-  AND 
-    RowID < M.RowID 
-  ORDER BY 
-    RowID DESC
-)
-
 ------------------------------------------------------------------------------------------------------------------------------------
 
-INSERT INTO Risk.DocumentFact(DocumentID, FactText, IsRelevant, BorderReferences, PlaceReferences, BoundaryReferences, FactGeography, FactCategory, AnalysisCategories)
+INSERT INTO Risk.Fact(DocumentID, FactText, FactHash, CountryID, BorderReferences, PlaceReferences, BoundaryReferences, CountyReferences, FactGeography, AnalysisCategories)
   SELECT 
     @DocumentID, 
-    FactText, 
-    IsRelevant,
+    FactText,
+    FactHash, 
+    @CountryID, 
     BorderReferences, 
     PlaceReferences, 
-    BoundaryReferences, 
+    BoundaryReferences,
+    CountyReferences, 
     TextCoverage,
-    PhraseCode,
     WordCodes
   FROM
     @RESULTS 
-
-SELECT 
-  @DocumentCoverage= Geography::UnionAggregate(TextCoverage) 
-FROM 
-  @RESULTS
-WHERE
-  TextCoverage IS NOT NULL
-
-IF @DocumentCoverage IS NOT NULL BEGIN
-
-  SET @DocumentCoverage = @DocumentCoverage.Reduce(@toleranceInMeters) 
-  SET @DocumentCoverage = dbo.RemoveArtefacts(@DocumentCoverage) 
-
-END
-
-UPDATE Risk.Document SET
-  AnalisedAtUTC     = getutcdate(),
-  DocumentCoverage  = @DocumentCoverage,
-  CountryID         = @CountryID 
-WHERE
-  DocumentID = @DocumentID
-
  
 RETURN
 GO
- 
----------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.ProcesDocuments  -- UPDATE Risk.Document SET AnalisedAtUTC = NULL WHERE DocumentID = 104 
----------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE Risk.ProcesDocuments 
-AS 
 
-DECLARE @ID as int 
- 
-DECLARE @CURSOR as CURSOR;
- 
-SET @CURSOR = CURSOR FOR
- SELECT
-   DocumentID
- FROM 
-   Risk.Document
- WHERE
-   AnalisedAtUTC IS NULL
- 
-OPEN @CURSOR;
-
-FETCH NEXT FROM @CURSOR INTO @ID
- 
-WHILE @@FETCH_STATUS = 0 BEGIN
- 
- PRINT 'Processing ID ' + cast(@ID as varchar(20))
-
- EXECUTE Risk.ProcesDocument @ID
-
- FETCH NEXT FROM @CURSOR INTO @ID
-END
- 
-CLOSE      @CURSOR;
-DEALLOCATE @CURSOR;
-
-RETURN
-go
+--GRANT EXECUTE ON [Risk].[ProcesDocument] TO [risk.service]
+--GO
 
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 --EXECUTE Risk.PostDocument 'https://keldan.co.uk/test-in-france.html', 'latest news', 'there is a problem in a town called autrey-les-gray.'   
 --EXECUTE Risk.ProcesstDocuments 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE Risk.PostDocument
+CREATE PROCEDURE [Risk].[PostDocument]
   @Source      varchar(500), 
   @Title       varchar(500),
-  @Text        varchar(max)
+  @Text        varchar(max),
+  @ProcessNow  bit = 0
 AS
 
+DECLARE @DocumentHash       varbinary(max) 
 DECLARE @CurrentID          integer
-DECLARE @CurrentText        varchar(max) 
+DECLARE @CurrentHash        varbinary(max) 
 
 SET @Source = LOWER(@Source)
-SET @Source = REPLACE(@Source, 'https://', '')
-SET @Source = REPLACE(@Source, 'http://',  '')
-
+ 
 SET @Title = dbo.TextToAlphebeticString(@Title)
 SET @Text  = LOWER(@Text)
 
+SET @DocumentHash = HASHBYTES('SHA1', @Text); 
+
 SELECT 
   @CurrentID       = DocumentID,
-  @CurrentText     = DocumentText
+  @CurrentHash     = DocumentHash
 FROM
   Risk.Document
 WHERE
@@ -564,14 +399,12 @@ WHERE
 AND
   IsLatestDocument  = 1
  
-IF @CurrentID IS NOT NULL AND @CurrentText = @Text BEGIN
+IF @CurrentID IS NOT NULL AND @CurrentHash = @DocumentHash BEGIN
 
   UPDATE Risk.Document SET
-    AnalisedAtUTC = getutcdate()
+    RetrievedAtUTC = getutcdate()
   WHERE
     DocumentID = @CurrentID 
-  AND
-    AnalisedAtUTC IS NOT NULL 
 
 END ELSE BEGIN
 
@@ -584,25 +417,129 @@ END ELSE BEGIN
   ( 
     DocumentSource,
     DocumentTitle,
-    DocumentText, 
-    IsLatestDocument
+    DocumentHash, 
+    IsLatestDocument,
+    RetrievedAtUTC
   )
   VALUES
   (
     @Source,
     @Title,
-    @Text,
-    1
+    @DocumentHash,
+    1,
+    getutcdate()
   )
 
-  --EXECUTE Risk.ProcesDocument @@IDENTITY
+  EXECUTE Risk.ProcesDocument @@IDENTITY, @Title, @Text 
 
 END
 
 RETURN @@ROWCOUNT
-GO 
-
-GRANT EXECUTE ON [Risk].[PostDocument] TO [riskservice]
 GO
 
 
+GRANT EXECUTE ON [Risk].[PostDocument] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.PutFactCategory 4863, 'PROFILE'
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[PutFactCategory] 
+(
+  @FactID             integer,
+  @Category           varchar(255)    
+)
+AS 
+
+DECLARE @FactHash            varbinary(max)
+
+SELECT 
+  @FactHash = FactHash
+FROM
+  Risk.Fact
+WHERE
+  FactID = @FactID
+
+IF @Category = 'DISCARD' BEGIN
+
+  UPDATE Risk.Fact SET
+    FactCategory   = @Category 
+  WHERE
+    FactHash       = @FactHash
+
+END ELSE BEGIN
+
+  UPDATE Risk.Fact SET
+    FactCategory   = @Category     
+  WHERE
+    FactID         = @FactID
+
+END
+
+RETURN @@ROWCOUNT
+GO
+
+GRANT EXECUTE ON [Risk].[PutFactCategory] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.PutFactMerge 4863, 'Some Text goes here'
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[PutFactMerge] 
+(
+  @FactID             integer    
+)
+AS 
+
+DECLARE 
+  @PriorFactID      integer,
+  @PriorFactText    varchar(max),
+  @FactText         varchar(max)
+
+SELECT
+  @PriorFactID   = FactID,
+  @PriorFactText = FactText
+FROM
+  Risk.Fact
+WHERE
+  FactID = @FactID
+AND
+  DocumentID = (SELECT DocumentID FROM Risk.Fact WHERE FactID = @FactID)
+
+IF @PriorFactID IS NOT NULL BEGIN
+
+  UPDATE Risk.Fact SET
+    DisplayText    = @PriorFactText + '; ' + @FactText,
+    IsMerged       = 1     
+  WHERE
+    FactID         = @PriorFactID
+
+END
+
+RETURN @@ROWCOUNT
+GO
+
+GRANT EXECUTE ON [Risk].[PutFactMerge] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.PutFactText 4863, 'Some Text goes here'
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[PutFactText] 
+(
+  @FactID             integer,
+  @Text               varchar(max)    
+)
+AS 
+
+UPDATE Risk.Fact SET
+  DisplayText       = @Text,
+  isEdited          = 1     
+WHERE
+  FactID            = @FactID
+
+RETURN @@ROWCOUNT
+GO
+
+GRANT EXECUTE ON [Risk].[PutFactText] TO [risk.service]
+GO
