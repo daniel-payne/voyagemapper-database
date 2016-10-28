@@ -1,20 +1,25 @@
 ---------------------------------------------------------------------------------------------------
 --Drops
 ---------------------------------------------------------------------------------------------------
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetDocumentsUncurated'   AND type = 'P') DROP PROCEDURE Risk.GetDocumentsUncurated
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetFacts'                AND type = 'P') DROP PROCEDURE Risk.GetFacts
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ListDocuments'                    AND type = 'P') DROP PROCEDURE Risk.ListDocuments
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ListDocumentsForUncurated'        AND type = 'P') DROP PROCEDURE Risk.ListDocumentsForUncurated
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ListFacts'                        AND type = 'P') DROP PROCEDURE Risk.ListFacts
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ListFactsForDocument'             AND type = 'P') DROP PROCEDURE Risk.ListFactsForDocument
+                                                                                    
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocument'                     AND type = 'P') DROP PROCEDURE Risk.PostDocument
+                                                                                    
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactCategory'                  AND type = 'P') DROP PROCEDURE Risk.PutFactCategory
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactMerge'                     AND type = 'P') DROP PROCEDURE Risk.PutFactMerge
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactText'                      AND type = 'P') DROP PROCEDURE Risk.PutFactText
 
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocument'            AND type = 'P') DROP PROCEDURE Risk.PostDocument
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocument'          AND type = 'P') DROP PROCEDURE Risk.ProcesDocument
-
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactCategory'         AND type = 'P') DROP PROCEDURE Risk.PutFactCategory
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactMerge'            AND type = 'P') DROP PROCEDURE Risk.PutFactMerge
-IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactText'             AND type = 'P') DROP PROCEDURE Risk.PutFactText
-go
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocument'                   AND type = 'P') DROP PROCEDURE Risk.ProcesDocument
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesFact'                       AND type = 'P') DROP PROCEDURE Risk.ProcesFact
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentsWithMissingFacts'  AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentsWithMissingFacts
 
 ---------------------------------------------------------------------------------------------------
 --Drops
 ---------------------------------------------------------------------------------------------------
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetFacts'                     AND type = 'P') DROP PROCEDURE Risk.GetFacts
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocuments'         AND type = 'P') DROP PROCEDURE Risk.ProcesDocuments
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocumentFactStatus'  AND type = 'P') DROP PROCEDURE Risk.PostDocumentFactStatus
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'GetUncuratedDocuments'   AND type = 'P') DROP PROCEDURE Risk.GetUncuratedDocuments
@@ -24,21 +29,49 @@ IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostLocation'            AND t
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostSignal'              AND type = 'P') DROP PROCEDURE Risk.PostSignal
 go
           
+
+
+
+ ---------------------------------------------------------------------------------------------------
+-- Risk.ListDocuments '287,288,289'  
+---------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[ListDocuments]
+(
+  @DocumentList varchar(max) 
+)
+AS
+
+SELECT
+  D.DocumentID                              'documentId', 
+  D.DocumentSource                          'documentSource', 
+  D.DocumentTitle                           'documentTitle' 
+FROM
+  Risk.Document  D
+WHERE
+  DocumentID IN
+  (
+      SELECT DISTINCT dbo.StringToInteger(item) FROM dbo.ListToTable(@DocumentList, ',')
+  )
+--      
+RETURN @@rowcount
+GO
+
+GRANT EXECUTE ON [Risk].[ListDocuments] TO [risk.service]
+GO
         
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.GetDocumentsUncurated 'NOCOVERAGE'
+-- EXECUTE Risk.ListDocumentsForUncurated  
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE [Risk].[GetDocumentsUncurated] 
+CREATE PROCEDURE [Risk].[ListDocumentsForUncurated] 
 (
   @MaxDocumentCount   integer       = 10
 )
 AS 
 
+DECLARE @List varchar(max)
 
 SELECT TOP (@MaxDocumentCount)
-  D.DocumentID                              'documentId', 
-  D.DocumentSource                          'documentSource', 
-  D.DocumentTitle                           'documentTitle' 
+  @List = COALESCE(@List + ', ', '') + CAST(DocumentID as varchar(10))              
 FROM
   Risk.Document  D
 WHERE
@@ -46,20 +79,21 @@ WHERE
 AND
   CuratedAtUTC IS NULL
 
+EXECUTE Risk.ListDocuments @List
 
 RETURN @@ROWCOUNT
 
 GO
 
-GRANT EXECUTE ON [Risk].[GetDocumentsUncurated] TO [risk.service]
+GRANT EXECUTE ON [Risk].[ListDocumentsForUncurated] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.GetFacts 104, 'GOOGLEARRAY'
+-- EXECUTE Risk.ListFacts '31013,31014,31016', 'GOOGLEARRAY'
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-CREATE PROCEDURE [Risk].[GetFacts] 
+CREATE PROCEDURE [Risk].[ListFacts] 
 (
-  @DocumentID         integer,
+  @FactList           varchar(max),
   @CoverageFormat     varchar(20)   = 'NOCOVERAGE'
 )
 AS 
@@ -87,8 +121,12 @@ IF UPPER(@coverageFormat) = 'NOCOVERAGE' BEGIN
   LEFT OUTER JOIN
     Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
-    F.DocumentID = @DocumentID
-
+    F.FactID IN
+    (
+      SELECT DISTINCT dbo.StringToInteger(item) FROM dbo.ListToTable(@FactList, ',')
+    )
+  ORDER BY
+    FactID
 
 END ELSE IF UPPER(@coverageFormat) = 'GEOJSON' BEGIN
 
@@ -113,7 +151,12 @@ END ELSE IF UPPER(@coverageFormat) = 'GEOJSON' BEGIN
   LEFT OUTER JOIN
     Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
-    F.DocumentID = @DocumentID
+    F.FactID IN
+    (
+      SELECT DISTINCT dbo.StringToInteger(item) FROM dbo.ListToTable(@FactList, ',')
+    )
+  ORDER BY
+    FactID
 
 END ELSE IF UPPER(@coverageFormat) = 'GOOGLEARRAY' BEGIN
 
@@ -138,7 +181,12 @@ END ELSE IF UPPER(@coverageFormat) = 'GOOGLEARRAY' BEGIN
   LEFT OUTER JOIN
     Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
-    F.DocumentID = @DocumentID
+    F.FactID IN
+    (
+      SELECT DISTINCT dbo.StringToInteger(item) FROM dbo.ListToTable(@FactList, ',')
+    )
+  ORDER BY
+    FactID
 
 END ELSE IF UPPER(@coverageFormat) = 'SVG' BEGIN
 
@@ -163,7 +211,12 @@ END ELSE IF UPPER(@coverageFormat) = 'SVG' BEGIN
   LEFT OUTER JOIN
     Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
-    F.DocumentID = @DocumentID
+    F.FactID IN
+    (
+      SELECT DISTINCT dbo.StringToInteger(item) FROM dbo.ListToTable(@FactList, ',')
+    )
+  ORDER BY
+    FactID
 
 END ELSE BEGIN
  
@@ -188,183 +241,147 @@ END ELSE BEGIN
   LEFT OUTER JOIN
     Geographic.Country C ON C.CountryID = F.CountryID
   WHERE
-    F.DocumentID = @DocumentID
-
+    F.FactID IN
+    (
+      SELECT DISTINCT dbo.StringToInteger(item) FROM dbo.ListToTable(@FactList, ',')
+    )
+  ORDER BY
+    FactID
 END
 
 RETURN @@ROWCOUNT
 GO
 
-GRANT EXECUTE ON [Risk].[GetFacts] TO [risk.service]
+GRANT EXECUTE ON [Risk].[ListFacts] TO [risk.service]
 GO
-
-
-USE [VoyageMapper]
-GO
-
-/****** Object:  StoredProcedure [Risk].[ProcesDocument]    Script Date: 25/10/2016 19:49:49 ******/
-SET ANSI_NULLS ON
-GO
-
-SET QUOTED_IDENTIFIER OFF
-GO
-
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.ProcesDocument 104 
+-- EXECUTE Risk.ListFactsForDocument '287', 'GOOGLEARRAY'
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[ListFactsForDocument] 
+(
+  @DocumentID         integer,
+  @CoverageFormat     varchar(20)   = 'NOCOVERAGE'
+)
+AS 
+
+DECLARE @List varchar(max)
+
+SELECT  
+  @List = COALESCE(@List + ', ', '') + CAST(FactID as varchar(10))              
+FROM
+  Risk.Fact   
+WHERE
+  DocumentID = @DocumentID
+ORDER BY
+  FactID
+
+EXECUTE Risk.ListFacts @List
+
+RETURN @@ROWCOUNT
+GO
+
+GRANT EXECUTE ON [Risk].[ListFacts] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.ProcesDocument 287 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [Risk].[ProcesDocument] 
 (
-  @DocumentID           integer,
-  @Title                varchar(max),
-  @Text                 varchar(max) 
+  @DocumentID           integer 
 )
 AS 
---declare @DocumentID int = 104 
 
-DECLARE @toleranceInMeters integer = 1000;       
+DECLARE @CountryID integer
+DECLARE @DocumentText varchar(max)
 
-DECLARE @CountryID            int
-DECLARE @Input                varchar(max)
-DECLARE @DocumentCoverage     geography
-DECLARE @PhraseCode           varchar(255)
-DECLARE @WordCodes            varchar(max)
-DECLARE @LastCategoryCode     varchar(255)
-DECLARE @FactText             varchar(max)
-DECLARE @FactHash             varbinary(8000)
+SELECT
+  @DocumentText = DocumentText
+FROM
+  Risk.Document D
+WHERE
+  D.DocumentID = @DocumentID
 
-DECLARE @FACTS    TABLE (FactText varchar(max))
-DECLARE @COVERAGE TABLE (BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), countyReferences varchar(max), textCoverage geography)
-DECLARE @RESULTS  TABLE (RowID int IDENTITY (1,1), PhraseCode varchar(50), FactText varchar(max), FactHash varbinary(max), BorderReferences varchar(max), PlaceReferences varchar(max), BoundaryReferences varchar(max), countyReferences varchar(max), textCoverage geography, WordCodes   varchar(max) )
+SET @DocumentText = replace(@DocumentText, char(11),  ' ')
+SET @DocumentText = replace(@DocumentText, char(160), ' ')
+SET @DocumentText = replace(@DocumentText, '   ',     ' ')          
+SET @DocumentText = replace(@DocumentText, '  ',      ' ')
 
-------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT
+  @DocumentText = REPLACE(@DocumentText, LookFor, ReplaceWith)
+FROM
+  Risk.ReplacePhrase
+WHERE
+  charindex(LookFor, @DocumentText) > 0
 
-SET @Title  = ' ' + @Title + ' ' 
-SET @Text   = ' ' + @Text  + ' '
+SELECT
+  @DocumentText = REPLACE(@DocumentText, LookFor, ReplaceWith)
+FROM
+  Risk.ReplacePhraseExact
+WHERE
+  charindex(LookFor, @DocumentText COLLATE Latin1_General_CS_AS) > 0
+
+SET @DocumentText = REPLACE(@DocumentText, 'in the area to which. The FCO advise against', 'in the area to which, the FCO advise against')
+SET @DocumentText = REPLACE(@DocumentText, ' throughout. The ',                            ' throughout the '                            )
 
 DELETE FROM 
   Risk.Fact
 WHERE
   DocumentID = @DocumentID
 
-INSERT INTO @FACTS(FactText)
-  SELECT
-    dbo.TextToSimpleString(item, 0)
-  FROM
-    dbo.ListToTable( @Text, '.' ) 
-  WHERE
-    datalength(item) > 0
-
-------------------------------------------------------------------------------------------------------------------------------------------------
-
-SELECT TOP 1
-  @CountryID = CountryID
-FROM
-  Geographic.CountryName
-WHERE
-  CHARINDEX(CountryMatchName, @Title) > 0
-ORDER BY
-  datalength(CountryMatchName) DESC
-
-IF @CountryID IS NULL BEGIN
-
-  --UPDATE Risk.Document SET
-  --  CuratedAtUTC     = getutcdate() 
-  --WHERE
-  --  DocumentID = @DocumentID
-
-  RETURN 0
-
-END
-
-------------------------------------------------------------------------------------------------------------------------------------------------
-
-DECLARE FACT_CURSOR CURSOR FOR  
-  SELECT FactText 
-  FROM   @FACTS 
-  
-
-OPEN FACT_CURSOR   
-FETCH NEXT FROM FACT_CURSOR INTO @FactText   
-
-WHILE @@FETCH_STATUS = 0 BEGIN   
-   
-  SET @FactHash = HASHBYTES('SHA1', @FactText); 
-
-  INSERT INTO @COVERAGE (borderReferences, PlaceReferences , boundaryReferences , countyReferences , textCoverage)
-    EXECUTE Geographic.GetCoverage @FactText, @CountryID
-
-  SELECT  
-     @WordCodes = COALESCE(@WordCodes + ', ', '') + CategoryCode 
-  FROM
-    Risk.TriggerPhrases
-  WHERE
-    PATINDEX(TriggerPhrase, @FactText) > 0
-
-  IF @WordCodes IS NULL BEGIN
-
-    SELECT  
-      @WordCodes = COALESCE(@WordCodes + ', ', '') + CategoryCode   
-    FROM
-      Risk.TriggerWords
-    WHERE
-      CHARINDEX(TriggerWord, @FactText) > 0
-    GROUP BY
-      CategoryCode
-    ORDER BY
-      sum(1.0/CategoryCount)                DESC,
-      min(CHARINDEX(TriggerWord, @FactText)) ASC 
-
-  END
-   
-  INSERT INTO @RESULTS 
-    SELECT
-      @PhraseCode,
-      @FactText, 
-      @FactHash,
-      borderReferences, 
-      PlaceReferences, 
-      boundaryReferences, 
-      countyReferences,
-      textCoverage,
-      @WordCodes 
-    FROM   
-      @COVERAGE
-
-  DELETE FROM @COVERAGE
-
-  SET @PhraseCode       = null
-  SET @WordCodes        = null
-
-  FETCH NEXT FROM FACT_CURSOR INTO @FactText   
-
-END   
-
-CLOSE      FACT_CURSOR   
-DEALLOCATE FACT_CURSOR
-
-------------------------------------------------------------------------------------------------------------------------------------
-
-INSERT INTO Risk.Fact(DocumentID, FactText, FactHash, CountryID, BorderReferences, PlaceReferences, BoundaryReferences, CountyReferences, FactGeography, AnalysisCategories)
+INSERT INTO Risk.Fact(DocumentID, FactText, FactHash, CountryID)
   SELECT 
     @DocumentID, 
-    FactText,
-    FactHash, 
-    @CountryID, 
-    BorderReferences, 
-    PlaceReferences, 
-    BoundaryReferences,
-    CountyReferences, 
-    TextCoverage,
-    WordCodes
+    dbo.TextToCleanString(item),
+    HASHBYTES('SHA1', lower(item)), 
+    @CountryID 
   FROM
-    @RESULTS 
+   dbo.TextToLines(@DocumentText)
  
 RETURN
 GO
 
 --GRANT EXECUTE ON [Risk].[ProcesDocument] TO [risk.service]
 --GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.ProcesDocumentsWithMissingFacts  -- DELETE FROM Risk.Fact  
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE Risk.ProcesDocumentsWithMissingFacts 
+AS 
+
+DECLARE @ID as int 
+ 
+DECLARE @CURSOR as CURSOR;
+ 
+SET @CURSOR = CURSOR FOR
+ SELECT
+   DocumentID
+ FROM 
+   Risk.Document
+ WHERE
+   DocumentID NOT IN (SELECT DocumentID FROM Risk.Fact)
+ 
+OPEN @CURSOR;
+
+FETCH NEXT FROM @CURSOR INTO @ID
+ 
+WHILE @@FETCH_STATUS = 0 BEGIN
+ 
+ EXECUTE Risk.ProcesDocument @ID
+
+ FETCH NEXT FROM @CURSOR INTO @ID
+END
+ 
+CLOSE      @CURSOR;
+DEALLOCATE @CURSOR;
+
+RETURN
+go
+
+GRANT EXECUTE ON [Risk].[ProcesDocumentsWithMissingFacts] TO [risk.service]
+GO
 
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -382,12 +399,8 @@ DECLARE @DocumentHash       varbinary(max)
 DECLARE @CurrentID          integer
 DECLARE @CurrentHash        varbinary(max) 
 
-SET @Source = LOWER(@Source)
- 
-SET @Title = dbo.TextToAlphebeticString(@Title)
-SET @Text  = LOWER(@Text)
-
-SET @DocumentHash = HASHBYTES('SHA1', @Text); 
+SET @Source       = LOWER(@Source)
+SET @DocumentHash = HASHBYTES('SHA1', lower(@Text)); 
 
 SELECT 
   @CurrentID       = DocumentID,
@@ -418,6 +431,7 @@ END ELSE BEGIN
     DocumentSource,
     DocumentTitle,
     DocumentHash, 
+    DocumentText,
     IsLatestDocument,
     RetrievedAtUTC
   )
@@ -426,11 +440,16 @@ END ELSE BEGIN
     @Source,
     @Title,
     @DocumentHash,
+    @Text,
     1,
     getutcdate()
   )
 
-  EXECUTE Risk.ProcesDocument @@IDENTITY, @Title, @Text 
+  IF (@ProcessNow = 1 ) BEGIN
+    
+    EXECUTE Risk.ProcesDocument @@IDENTITY 
+
+  END
 
 END
 
@@ -476,6 +495,8 @@ END ELSE BEGIN
 
 END
 
+EXECUTE Risk.ListFacts @FactID 
+
 RETURN @@ROWCOUNT
 GO
 
@@ -494,7 +515,8 @@ AS
 DECLARE 
   @PriorFactID      integer,
   @PriorFactText    varchar(max),
-  @FactText         varchar(max)
+  @FactText         varchar(max),
+  @FactList         varchar(max)
 
 SELECT
   @PriorFactID   = FactID,
@@ -513,6 +535,10 @@ IF @PriorFactID IS NOT NULL BEGIN
     IsMerged       = 1     
   WHERE
     FactID         = @PriorFactID
+
+  SET @FactList = @FactID + ',' + @PriorFactID
+
+  EXECUTE Risk.ListFacts @FactList 
 
 END
 
@@ -538,8 +564,125 @@ UPDATE Risk.Fact SET
 WHERE
   FactID            = @FactID
 
+EXECUTE Risk.ListFacts @FactID 
+
 RETURN @@ROWCOUNT
 GO
 
 GRANT EXECUTE ON [Risk].[PutFactText] TO [risk.service]
 GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- Data for processing
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+--DECLARE @Text  varchar(max) = 'this and That'   
+--DECLARE @Match varchar(max) = 't'              
+
+--SELECT charindex(@Match, @Text COLLATE Latin1_General_CS_AS) 
+
+
+DECLARE @ADDITIONAL_FULL_STOP_FIRST_PART TABLE (A varchar(255))
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'a' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'b' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'c' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'd' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'e' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'f' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'g' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'h' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'i' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'j' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'k' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'l' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'm' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'n' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'o' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'p' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'q' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'r' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 's' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 't' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'u' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'v' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'w' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'x' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'y' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( 'z' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( ')' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( ':' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( ';' )
+INSERT INTO @ADDITIONAL_FULL_STOP_FIRST_PART VALUES ( ',' )
+
+DECLARE @ADDITIONAL_FULL_STOP_SECOND_PART TABLE (B varchar(255))
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'The ' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'You' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'There' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'the FCO advise against ' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In a' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In b' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In c' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In d' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In e' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In f' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In g' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In h' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In i' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In j' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In k' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In l' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In m' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In n' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In o' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In p' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In q' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In r' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In s' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In t' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In u' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In v' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In w' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In x' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In y' )
+INSERT INTO @ADDITIONAL_FULL_STOP_SECOND_PART VALUES ( 'In z' )
+
+DELETE FROM Risk.ReplacePhraseExact
+
+INSERT INTO Risk.ReplacePhraseExact
+  SELECT
+    A + ' ' + B, A + '. ' + upper(substring(B,1,1)) + substring(B,2,255)
+  FROM
+    @ADDITIONAL_FULL_STOP_FIRST_PART
+  CROSS JOIN
+   @ADDITIONAL_FULL_STOP_SECOND_PART
+
+ UPDATE Risk.ReplacePhraseExact SET
+   ReplaceWith = REPLACE(ReplaceWith, ':.', '.')
+
+UPDATE Risk.ReplacePhraseExact SET
+   ReplaceWith = REPLACE(ReplaceWith, ';.', '.')
+
+UPDATE Risk.ReplacePhraseExact SET
+   ReplaceWith = REPLACE(ReplaceWith, ',.', '.')
+
+DELETE FROM Risk.ReplacePhrase
+
+INSERT INTO Risk.ReplacePhrase VALUES( 'gov.uk',                              ' '                           )
+INSERT INTO Risk.ReplacePhrase VALUES( '0, except where otherwise stated', '. Except where otherwise stated')
+
+INSERT INTO Risk.ReplacePhrase VALUES( '. see terrorism ',                 '. See terrorism. '             )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see landmines ',                 '. See landmines. '             )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see natural disasters ',         '. See natural disasters. '     )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see winter sports ',             '. See winter sports. '         )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see consular assistance ',       '. See consular assistance. '   )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see political situation ',       '. See political situation. '   )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see crime and local travel ',    '. See crime and local travel. ')
+INSERT INTO Risk.ReplacePhrase VALUES( '. see crime ',                     '. See crime. '                 )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see Road Travel ',               '. See Road Travel. '           )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see Sea Travel ',                '. See Sea Travel. '            )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see Air Travel ',                '. See Air Travel. '            )
+INSERT INTO Risk.ReplacePhrase VALUES( '. see Local laws and customs ',    '. See Local laws and customs. ')
+ 
+INSERT INTO Risk.ReplacePhrase VALUES( '. See crime. and Local travel). ',  '. See crime and Local travel. ')
+INSERT INTO Risk.ReplacePhrase VALUES( '. See crime. and Local travel. ',   '. See crime and Local travel. ')
+
