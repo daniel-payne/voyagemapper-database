@@ -8,13 +8,18 @@ IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ListFactsForDocument'         
                                                                                     
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PostDocument'                     AND type = 'P') DROP PROCEDURE Risk.PostDocument
                                                                                     
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutDocumentReset'                 AND type = 'P') DROP PROCEDURE Risk.PutDocumentReset
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactCategory'                  AND type = 'P') DROP PROCEDURE Risk.PutFactCategory
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactMerge'                     AND type = 'P') DROP PROCEDURE Risk.PutFactMerge
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactText'                      AND type = 'P') DROP PROCEDURE Risk.PutFactText
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'PutFactDiscard'                   AND type = 'P') DROP PROCEDURE Risk.PutFactDiscard
 
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocument'                   AND type = 'P') DROP PROCEDURE Risk.ProcesDocument
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesFact'                       AND type = 'P') DROP PROCEDURE Risk.ProcesFact
 IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentsWithMissingFacts'  AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentsWithMissingFacts
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesFactsForDocument'           AND type = 'P') DROP PROCEDURE Risk.ProcesFactsForDocument
+IF EXISTS (SELECT 1 FROM sysobjects WHERE name = 'ProcesDocumentReset'              AND type = 'P') DROP PROCEDURE Risk.ProcesDocumentReset
+
 
 ---------------------------------------------------------------------------------------------------
 --Drops
@@ -115,7 +120,8 @@ IF UPPER(@coverageFormat) = 'NOCOVERAGE' BEGIN
     null                                'factGeography',
     AnalysisCategories                  'analysisCategories',
     IsEdited                            'isEdited', 
-    IsMerged                            'isMerged'  
+    IsMerged                            'isMerged',
+    IsDiscarded                         'isDiscarded'
   FROM
     Risk.Fact  F
   LEFT OUTER JOIN
@@ -145,7 +151,8 @@ END ELSE IF UPPER(@coverageFormat) = 'GEOJSON' BEGIN
     dbo.CastAsGeoJSON(FactGeography)    'factGeography',
     AnalysisCategories                  'analysisCategories',
     IsEdited                            'isEdited', 
-    IsMerged                            'isMerged'  
+    IsMerged                            'isMerged',
+    IsDiscarded                         'isDiscarded'  
   FROM
     Risk.Fact  F
   LEFT OUTER JOIN
@@ -175,7 +182,8 @@ END ELSE IF UPPER(@coverageFormat) = 'GOOGLEARRAY' BEGIN
     dbo.CastAsGoogleArray(FactGeography)'factGeography',
     AnalysisCategories                  'analysisCategories',
     IsEdited                            'isEdited', 
-    IsMerged                            'isMerged'  
+    IsMerged                            'isMerged',
+    IsDiscarded                         'isDiscarded'  
   FROM
     Risk.Fact  F
   LEFT OUTER JOIN
@@ -205,7 +213,8 @@ END ELSE IF UPPER(@coverageFormat) = 'SVG' BEGIN
     CAST(FactGeography as varchar(max)) 'factGeography',
     AnalysisCategories                  'analysisCategories',
     IsEdited                            'isEdited', 
-    IsMerged                            'isMerged'  
+    IsMerged                            'isMerged',
+    IsDiscarded                         'isDiscarded'  
   FROM
     Risk.Fact  F
   LEFT OUTER JOIN
@@ -235,7 +244,8 @@ END ELSE BEGIN
     FactGeography                       'factGeography',
     AnalysisCategories                  'analysisCategories',
     IsEdited                            'isEdited', 
-    IsMerged                            'isMerged' 
+    IsMerged                            'isMerged',
+    IsDiscarded                         'isDiscarded' 
   FROM
     Risk.Fact  F
   LEFT OUTER JOIN
@@ -256,7 +266,129 @@ GRANT EXECUTE ON [Risk].[ListFacts] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.ListFactsForDocument '287', 'GOOGLEARRAY'
+-- EXECUTE Risk.ProcesFact 287 
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[ProcesFact] 
+(
+  @FactID           integer 
+)
+AS 
+
+DECLARE @CountryID  integer
+DECLARE @Text       varchar(max)
+DECLARE @Coverage   geography
+
+DECLARE @LOCATION_RESULTS TABLE
+(
+  MatchName         varchar(255),
+  CountryID         integer,
+  StateID           integer,
+  CountyID          integer,
+  DistrictID        integer,
+  CommunityID       integer,
+  WardID            integer,
+  PlaceID           integer,
+  BorderID          integer,
+  MatchGeography    geography
+)
+
+SELECT
+  @CountryID  = CountryID 
+FROM
+  Risk.Document
+WHERE
+  DocumentID = (SELECT DocumentID FROM Risk.Fact WHERE FactID = @FactID)
+
+SELECT
+  @Text = ISNULL(DisplayText, FactText)
+FROM
+  Risk.Fact
+WHERE
+  FactID = @FactID
+
+INSERT INTO @LOCATION_RESULTS
+  EXECUTE Geographic.MatchLocationsText @Text, @CountryID
+
+INSERT INTO Risk.Location
+  SELECT
+    @FactID,
+    CountryID,   
+    StateID,     
+    CountyID,    
+    DistrictID,  
+    CommunityID, 
+    WardID,      
+    PlaceID,     
+    BorderID
+  FROM
+    @LOCATION_RESULTS    
+
+SELECT 
+  @Coverage= Geography::UnionAggregate(MatchGeography) 
+FROM 
+  @LOCATION_RESULTS
+
+IF @Coverage IS NOT NULL BEGIN
+
+  SET @Coverage = @Coverage.Reduce(1000) 
+  SET @Coverage = dbo.RemoveArtefacts(@Coverage) 
+
+END
+
+UPDATE Risk.Fact SET
+  FactGeography = @Coverage
+WHERE
+  FactID = @FactID
+
+RETURN
+go
+
+GRANT EXECUTE ON [Risk].[ProcesFact] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.ProcesFactsForDocument  -- DELETE FROM Risk.Fact  
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE Risk.ProcesFactsForDocument
+(
+  @DocumentID           integer 
+) 
+AS 
+
+DECLARE @ID as int 
+ 
+DECLARE @CURSOR as CURSOR;
+ 
+SET @CURSOR = CURSOR FOR
+ SELECT
+   FactID
+ FROM 
+   Risk.Fact
+ WHERE
+   DocumentID = @DocumentID
+ 
+OPEN @CURSOR;
+
+FETCH NEXT FROM @CURSOR INTO @ID
+ 
+WHILE @@FETCH_STATUS = 0 BEGIN
+ 
+ EXECUTE Risk.ProcesFact @ID
+
+ FETCH NEXT FROM @CURSOR INTO @ID
+END
+ 
+CLOSE      @CURSOR;
+DEALLOCATE @CURSOR;
+
+RETURN
+go
+
+GRANT EXECUTE ON [Risk].[ProcesFactsForDocument] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.ListFactsForDocument 287, 'GOOGLEARRAY'
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [Risk].[ListFactsForDocument] 
 (
@@ -281,7 +413,42 @@ EXECUTE Risk.ListFacts @List
 RETURN @@ROWCOUNT
 GO
 
-GRANT EXECUTE ON [Risk].[ListFacts] TO [risk.service]
+GRANT EXECUTE ON [Risk].[ListFactsForDocument] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.ProcesDocumentReset 287   
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE Risk.ProcesDocumentReset
+(
+  @DocumentID           integer 
+) 
+AS 
+
+UPDATE Risk.Document SET
+  CuratedAtUTC = NULL
+WHERE
+  DocumentID = @DocumentID 
+ 
+UPDATE Risk.Fact SET
+  FactCategory = NULL,
+  DisplayText  = NULL,
+  IsEdited     = NULL,
+  IsMerged     = NULL,
+  isDiscarded  = NULL
+WHERE
+  DocumentID = @DocumentID  
+
+DELETE FROM Risk.Location
+WHERE
+  FactID IN (SELECT FactID FROM Risk.Fact WHERE DocumentID = @DocumentID)
+
+EXECUTE Risk.ListFactsForDocument @DocumentID
+
+RETURN
+go
+
+GRANT EXECUTE ON [Risk].[ProcesDocumentReset] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -293,11 +460,20 @@ CREATE PROCEDURE [Risk].[ProcesDocument]
 )
 AS 
 
-DECLARE @CountryID integer
-DECLARE @DocumentText varchar(max)
+DECLARE @CountryID     integer
+DECLARE @DocumentText  varchar(max)
+DECLARE @DocumentTitle varchar(max)
+
+DECLARE @COUNTRY_RESULTS TABLE
+(
+  MatchName         varchar(255),
+  CountryID         integer,
+  StartPosition     integer
+)
 
 SELECT
-  @DocumentText = DocumentText
+  @DocumentTitle = DocumentTitle,
+  @DocumentText  = DocumentText
 FROM
   Risk.Document D
 WHERE
@@ -307,6 +483,19 @@ SET @DocumentText = replace(@DocumentText, char(11),  ' ')
 SET @DocumentText = replace(@DocumentText, char(160), ' ')
 SET @DocumentText = replace(@DocumentText, '   ',     ' ')          
 SET @DocumentText = replace(@DocumentText, '  ',      ' ')
+
+INSERT INTO @COUNTRY_RESULTS
+  EXEC Geographic.MatchCountriesText @DocumentTitle
+
+SELECT
+  @CountryID = CountryID
+FROM
+  @COUNTRY_RESULTS
+
+UPDATE Risk.Document SET
+  CountryID = @CountryID
+WHERE
+  DocumentID = @DocumentID
 
 SELECT
   @DocumentText = REPLACE(@DocumentText, LookFor, ReplaceWith)
@@ -338,6 +527,8 @@ INSERT INTO Risk.Fact(DocumentID, FactText, FactHash, CountryID)
     @CountryID 
   FROM
    dbo.TextToLines(@DocumentText)
+
+EXEC Risk.ProcesFactsForDocument @DocumentID
  
 RETURN
 GO
@@ -461,6 +652,55 @@ GRANT EXECUTE ON [Risk].[PostDocument] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.PutFactDiscard 4863                        
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[PutFactDiscard] 
+(
+  @FactID             integer,
+  @IsDiscarded        bit    
+)
+AS 
+
+DECLARE @FactHash            varbinary(max)
+
+SELECT 
+  @FactHash = FactHash
+FROM
+  Risk.Fact
+WHERE
+  FactID = @FactID
+
+UPDATE Risk.Fact SET
+  isDiscarded    = @IsDiscarded -- flip a bit = ISNULL(isDiscarded ^ 1, 1)
+WHERE
+  FactHash       = @FactHash
+
+EXECUTE Risk.ListFacts @FactID 
+
+RETURN @@ROWCOUNT
+GO
+
+GRANT EXECUTE ON [Risk].[PutFactDiscard] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+-- EXECUTE Risk.PutDocumentReset 287                        
+---------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE PROCEDURE [Risk].[PutDocumentReset] 
+(
+  @DocumentID             integer 
+)
+AS 
+
+EXECUTE Risk.ProcesDocumentReset @DocumentID 
+
+RETURN @@ROWCOUNT
+GO
+
+GRANT EXECUTE ON [Risk].[PutDocumentReset] TO [risk.service]
+GO
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
 -- EXECUTE Risk.PutFactCategory 4863, 'PROFILE'
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [Risk].[PutFactCategory] 
@@ -504,7 +744,7 @@ GRANT EXECUTE ON [Risk].[PutFactCategory] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.PutFactMerge 4863, 'Some Text goes here'
+-- EXECUTE Risk.PutFactMerge 40928 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [Risk].[PutFactMerge] 
 (
@@ -513,30 +753,49 @@ CREATE PROCEDURE [Risk].[PutFactMerge]
 AS 
 
 DECLARE 
+  @DocumentID       integer,
   @PriorFactID      integer,
   @PriorFactText    varchar(max),
   @FactText         varchar(max),
   @FactList         varchar(max)
 
 SELECT
-  @PriorFactID   = FactID,
-  @PriorFactText = FactText
+  @DocumentID    = DocumentID,
+  @FactText      = ISNULL(DisplayText, FactText)
 FROM
   Risk.Fact
 WHERE
-  FactID = @FactID
-AND
-  DocumentID = (SELECT DocumentID FROM Risk.Fact WHERE FactID = @FactID)
+  FactID = @FactID  
+
+SELECT
+  @PriorFactID   = FactID,
+  @PriorFactText = ISNULL(DisplayText, FactText)
+FROM
+  Risk.Fact
+WHERE
+  FactID  = ( SELECT MAX(FactID) FROM Risk.Fact WHERE DocumentID = @DocumentID AND FactID < @FactID AND IsMerged IS NULL)
 
 IF @PriorFactID IS NOT NULL BEGIN
 
   UPDATE Risk.Fact SET
-    DisplayText    = @PriorFactText + '; ' + @FactText,
+    DisplayText    = '',
+    FactGeography  = NULL,
     IsMerged       = 1     
+  WHERE
+    FactID         = @FactID
+
+  DELETE FROM Risk.Location
+  WHERE
+    FactID         = @FactID
+
+  UPDATE Risk.Fact SET
+    DisplayText    = @PriorFactText + '; ' + @FactText 
   WHERE
     FactID         = @PriorFactID
 
-  SET @FactList = @FactID + ',' + @PriorFactID
+  SET @FactList = cast(@FactID as varchar(10)) + ',' + cast(@PriorFactID as varchar(10))
+  
+  EXECUTE Risk.ProcesFact @PriorFactID
 
   EXECUTE Risk.ListFacts @FactList 
 
@@ -549,7 +808,7 @@ GRANT EXECUTE ON [Risk].[PutFactMerge] TO [risk.service]
 GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
--- EXECUTE Risk.PutFactText 4863, 'Some Text goes here'
+-- EXECUTE Risk.PutFactText 31013, 'Some Text goes here'
 ---------------------------------------------------------------------------------------------------------------------------------------------------
 CREATE PROCEDURE [Risk].[PutFactText] 
 (
